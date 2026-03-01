@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SICP | Solicitudes-Sistemas</title>
+    <!-- Tailwind CSS para el diseño -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconos de Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
+        
+        /* Ocultar flechas en inputs numéricos del Admin */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type=number] { -moz-appearance: textfield; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-800 pb-24 flex flex-col min-h-screen">
+    <!-- TOAST NOTIFICATION -->
+    <div id="toast" class="fixed top-20 right-4 sm:right-8 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl transform transition-all duration-300 translate-x-[150%] z-50 flex items-center gap-3 font-medium border border-slate-700">
+        <div class="bg-indigo-500/20 p-1.5 rounded-full"><i data-lucide="info" class="text-indigo-400 w-5 h-5"></i></div>
+        <span id="toast-msg"></span>
+    </div>
+
+    <!-- HEADER -->
+    <header class="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="goToCatalog()">
+                <i data-lucide="monitor" class="text-indigo-400"></i>
+                <h1 class="font-bold text-xl tracking-tight">SICP <span class="text-indigo-400 font-normal">| Solicitudes de Sistemas-Fydi</span></h1>
+            </div>
+            <!-- Botón de Administrador para controlar el stock -->
+            <button onclick="goToAdmin()" class="text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded flex items-center gap-2 transition-colors border border-slate-700">
+                <i data-lucide="settings" class="w-4 h-4"></i> Admin
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full" id="app-container">
+        <!-- El contenido se inyecta aquí con Javascript -->
+    </main>
+
+    <!-- FOOTER COPYRIGHT -->
+    <footer class="w-full text-center py-6 mt-auto text-sm text-slate-400">
+        &copy; 2026 David Cajias DevOps
+    </footer>
+
+    <!-- FLOATING CART BUTTON -->
+    <div id="floating-cart" class="fixed bottom-6 left-0 right-0 flex justify-center z-50 hidden">
+        <button onclick="goToCheckout()" class="bg-indigo-600 text-white hover:bg-indigo-700 shadow-2xl rounded-full px-8 py-4 text-lg font-medium flex items-center transition-all transform hover:scale-105">
+            <i data-lucide="shopping-cart" class="mr-3"></i>
+            Revisar Pedido (<span id="cart-count">0</span> items)
+        </button>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔗 1. CONEXIÓN CON TU HOJA DE EXCEL (APPS SCRIPT)
+        // ==========================================
+        const EXCEL_API_URL = "https://script.google.com/macros/s/AKfycbzjC0NksRxtOZGQ54mz3LmcJzrggCwPxFFt8h4qU8OLQonfLSeUc9XCIi4pZL3gZmI7YA/exec"; 
+
+        // ==========================================
+        // CONFIGURACIÓN DE GOOGLE FORMS (BASE DE DATOS)
+        // ==========================================
+        const GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfFxX65M8NgVPHB09LqC-mIRFi5_owL5G73EszBKKQNZlVVrQ/formResponse";
+        const ENTRY_NAME = "entry.519287369"; // ID de la pregunta "Nombre/Área"
+        const ENTRY_ITEMS = "entry.747711175"; // ID de la pregunta "Equipos Solicitados"
+
+        // ==========================================
+        // LISTA DE LÍDERES
+        // ==========================================
+        const LIDERES = [
+            "Anderson Guzman - Líder", "Asdrubal - Líder", "Brandon Castillo - Líder", "Brandon Jacome - Líder",
+            "Bryan Briones - G.C.", "Carolina Sangucho - Líder", "Cinthya Pavon - Líder", "Cristian Chiliguano - Líder",
+            "David Cajias - DevOps", "Eddy Minga - Líder", "Edgar Jumbo - Líder", "Edinxon Mendoza - Líder",
+            "Edumary Gabriela - Líder", "Geoconda Galvez - Aud.", "Gissela Saldana - Líder", "Grace - Líder",
+            "Ivy Estupinan - Líder", "Jeimmy Macias - Líder", "Jonathan Ramirez - Líder", "Jordan Trujillo - Líder",
+            "Joshep Casarez - Líder","Juan Lopez - Líder", "Kyara - Líder", "Luis Betancour - Aud.", "Magaly - G.C.", "Noenmi - Líder",
+            "Rafaela - G.C.", "Rayza - Líder", "Ricardo - Líder", "Roberto Flores - Líder", "Roger Garcia - Líder",
+            "Romel Chuchimbe - Líder", "Sabrina - Líder", "Samantha Fonseca - Líder", "Stalin Cabascango - Líder"
+        ];
+
+        // ==========================================
+        // INVENTARIO BASE 
+        // ==========================================
+        const DEFAULT_INVENTORY = [
+            { id: '1', stock: 10, name: 'Mouse', category: 'Periféricos', icon: 'mouse', color: 'text-blue-500', bg: 'bg-blue-100' },
+            { id: '2', stock: 5, name: 'Teclado', category: 'Periféricos', icon: 'keyboard', color: 'text-indigo-500', bg: 'bg-indigo-100' },
+            { id: '3', stock: 0, name: 'Audífonos simples', category: 'Audio', icon: 'headphones', color: 'text-emerald-500', bg: 'bg-emerald-100' },
+            { id: '4', stock: 20, name: 'Audífonos dobles', category: 'Audio', icon: 'headset', color: 'text-teal-500', bg: 'bg-teal-100' },
+            { id: '5', stock: 50, name: 'Cable de Red', category: 'Conectividad', icon: 'network', color: 'text-orange-500', bg: 'bg-orange-100' },
+            { id: '6', stock: 15, name: 'Cable de Poder', category: 'Energía', icon: 'plug', color: 'text-red-500', bg: 'bg-red-100' },
+            { id: '7', stock: 3, name: 'Cámara', category: 'Video', icon: 'camera', color: 'text-purple-500', bg: 'bg-purple-100' },
+            { id: '8', stock: 30, name: 'Cable VGA', category: 'Video', icon: 'cable', color: 'text-cyan-500', bg: 'bg-cyan-100' },
+            { id: '9', stock: 10, name: 'Cargador de laptop', category: 'Energía', icon: 'battery-charging', color: 'text-yellow-500', bg: 'bg-yellow-100' },
+        ];
+
+        let INVENTORY = [...DEFAULT_INVENTORY];
+        let cart = {};
+        let currentView = 'catalog'; 
+        let isSyncing = false;
+
+        const container = document.getElementById('app-container');
+        const floatingCart = document.getElementById('floating-cart');
+        const cartCountEl = document.getElementById('cart-count');
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').innerHTML = msg;
+            toast.classList.remove('translate-x-[150%]');
+            setTimeout(() => toast.classList.add('translate-x-[150%]'), 3000);
+        }
+
+        // --- LÓGICA DE INVENTARIO EXCEL ---
+        async function loadInventory() {
+            if (!EXCEL_API_URL) return;
+
+            isSyncing = true;
+            render();
+            
+            try {
+                // Fetch estándar sin configuraciones extrañas para evitar errores de CORS
+                const res = await fetch(EXCEL_API_URL + "?action=read");
+                if (!res.ok) throw new Error('Error en la respuesta del servidor');
+                const stockData = await res.json(); 
+                
+                let actualizoAlgo = false;
+                INVENTORY.forEach(item => {
+                    if (stockData[item.id] !== undefined) {
+                        item.stock = parseInt(stockData[item.id]);
+                        actualizoAlgo = true;
+                    }
+                });
+                
+                if(actualizoAlgo) {
+                    console.log("Inventario sincronizado con Excel");
+                    // Guardar copia local de seguridad
+                    localStorage.setItem('sicp_stock_data', JSON.stringify(INVENTORY));
+                } else {
+                    console.warn("Excel respondió, pero no se encontraron IDs coincidentes.");
+                }
+
+            } catch(e) {
+                console.error("Error conectando a Excel:", e);
+                showToast("⚠️ Fallo al conectar. Usando inventario local.");
+                // Recuperar la última copia local si falla el Excel
+                const saved = localStorage.getItem('sicp_stock_data');
+                if (saved) INVENTORY = JSON.parse(saved);
+            } finally {
+                isSyncing = false;
+                render();
+            }
+        }
+
+        // Modificado para recibir el nombre y mostrarlo
+        async function adminUpdateStock(id, nombreProducto, newStock) {
+            const item = INVENTORY.find(i => i.id === id);
+            item.stock = parseInt(newStock) || 0;
+            
+            // Guardar localmente siempre por si acaso
+            localStorage.setItem('sicp_stock_data', JSON.stringify(INVENTORY));
+            render(); // Refrescar UI inmediatamente
+
+            if (!EXCEL_API_URL) return;
+
+            showToast(`Guardando ${nombreProducto}... ⏳`);
+
+            try {
+                await fetch(`${EXCEL_API_URL}?action=update&id=${id}&stock=${item.stock}`);
+                showToast(`✅ ${nombreProducto} guardado en Excel (${item.stock} uds.)`);
+            } catch(e) {
+                console.error("Error guardando en Excel:", e);
+                showToast(`❌ Error guardando ${nombreProducto} en la nube (Guardado localmente)`);
+            }
+        }
+
+        function updateCart(id, change) {
+            const item = INVENTORY.find(i => i.id === id);
+            const currentQty = cart[id] || 0;
+            const newQty = currentQty + change;
+
+            if (newQty > item.stock) {
+                alert(`¡Stock insuficiente! Solo quedan ${item.stock} unidades de ${item.name}.`);
+                return;
+            }
+
+            cart[id] = newQty;
+            if (cart[id] <= 0) delete cart[id];
+            render();
+        }
+
+        function getTotalItems() {
+            return Object.values(cart).reduce((a, b) => a + b, 0);
+        }
+
+        function goToCheckout() { currentView = 'checkout'; render(); window.scrollTo(0, 0); }
+        function goToCatalog() { currentView = 'catalog'; loadInventory(); window.scrollTo(0, 0); }
+        function goToAdmin() { currentView = 'admin'; render(); window.scrollTo(0, 0); }
+
+        function submitToGoogleForms(name, itemsText) {
+            if(GOOGLE_FORM_URL.includes("TU_ID_DE_FORMULARIO_AQUI")) return;
+
+            let iframe = document.getElementById('hidden_iframe');
+            if (!iframe) {
+                iframe = document.createElement('iframe');
+                iframe.name = 'hidden_iframe';
+                iframe.id = 'hidden_iframe';
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+            }
+
+            let form = document.createElement('form');
+            form.action = GOOGLE_FORM_URL;
+            form.method = 'POST';
+            form.target = 'hidden_iframe';
+
+            let inputName = document.createElement('input'); inputName.type = 'hidden'; inputName.name = ENTRY_NAME; inputName.value = name; form.appendChild(inputName);
+            let inputItems = document.createElement('input'); inputItems.type = 'hidden'; inputItems.name = ENTRY_ITEMS; inputItems.value = itemsText; form.appendChild(inputItems);
+
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        async function processOrder(event) {
+            event.preventDefault();
+            const nameSelect = document.getElementById('leaderName');
+            const name = nameSelect.value;
+            
+            if (!name || name === "") {
+                alert('Por favor selecciona tu nombre de la lista');
+                nameSelect.focus();
+                return;
+            }
+
+            let messageWA = `Hola Sistemas, soy *${name.trim()}*.%0A%0ASolicito los siguientes equipos para mi área:%0A%0A`;
+            let itemsForExcel = "";
+
+            for (const [id, qty] of Object.entries(cart)) {
+                const item = INVENTORY.find(i => i.id === id);
+                item.stock -= qty; 
+                
+                messageWA += `▪️ ${qty}x ${item.name}%0A`;
+                itemsForExcel += `${qty}x ${item.name}, `; 
+                
+                // Descontar en Excel de fondo sin redirect: follow
+                if (EXCEL_API_URL) {
+                    fetch(`${EXCEL_API_URL}?action=update&id=${id}&stock=${item.stock}`).catch(e=>console.error(e));
+                }
+            }
+            
+            // Guardar el estado local también
+            localStorage.setItem('sicp_stock_data', JSON.stringify(INVENTORY));
+
+            messageWA += `%0A_Enviado desde el Portal de Solicitudes SISTEMAS_FYDI_`;
+
+            submitToGoogleForms(name.trim(), itemsForExcel);
+            window.open(`https://api.whatsapp.com/send?text=${messageWA}`, '_blank');
+            
+            cart = {};
+            currentView = 'success';
+            render();
+            window.scrollTo(0, 0);
+        }
+
+        function render() {
+            let html = '';
+            
+            if (currentView === 'catalog') {
+                floatingCart.style.display = getTotalItems() > 0 ? 'flex' : 'none';
+                cartCountEl.innerText = getTotalItems();
+
+                if (isSyncing) {
+                    html += `
+                    <div class="text-center py-20 text-indigo-500">
+                        <i data-lucide="loader-2" class="w-12 h-12 animate-spin mx-auto mb-4"></i>
+                        <p class="font-bold text-lg">Conectando con bodega...</p>
+                    </div>`;
+                } else {
+                    html += '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 animate-fade-in-up">';
+                    
+                    INVENTORY.forEach(item => {
+                        const qty = cart[item.id] || 0;
+                        const isOutOfStock = item.stock <= 0; 
+                        
+                        html += `
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative ${isOutOfStock ? 'opacity-60 grayscale-[50%]' : 'hover:shadow-md transition-shadow'}">
+                            
+                            ${isOutOfStock ? `
+                            <div class="absolute inset-0 bg-white/40 z-10 flex items-center justify-center backdrop-blur-[1px]">
+                                <div class="bg-red-500 text-white px-4 py-1.5 rounded-lg font-black tracking-widest text-sm shadow-lg border border-white transform -rotate-12">
+                                    AGOTADO
+                                </div>
+                            </div>
+                            ` : `
+                            <div class="absolute top-2 right-2 z-10 bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm">
+                                Disp: ${item.stock}
+                            </div>
+                            `}
+
+                            <div class="h-32 flex items-center justify-center ${item.bg}">
+                                <i data-lucide="${item.icon}" class="${item.color}" style="width: 48px; height: 48px;"></i>
+                            </div>
+                            <div class="p-5 flex flex-col flex-grow relative bg-white">
+                                <div class="mb-4 flex-grow text-center">
+                                    <p class="text-xs text-slate-500 font-semibold mb-1 uppercase tracking-wider">${item.category}</p>
+                                    <h3 class="text-lg font-bold text-slate-800 leading-tight">${item.name}</h3>
+                                </div>
+                                <div class="mt-auto pt-4 border-t border-slate-100">
+                                    <div class="flex items-center bg-slate-50 rounded-lg p-1 w-full justify-between border border-slate-200 relative z-20">
+                                        <button onclick="updateCart('${item.id}', -1)" ${qty === 0 || isOutOfStock ? 'disabled' : ''} class="p-2 rounded-md hover:bg-white text-slate-600 disabled:opacity-30 transition-all shadow-sm">
+                                            <i data-lucide="minus" class="w-4 h-4"></i>
+                                        </button>
+                                        <span class="font-bold text-slate-800 w-8 text-center text-lg">${qty}</span>
+                                        <button onclick="updateCart('${item.id}', 1)" ${isOutOfStock || qty >= item.stock ? 'disabled' : ''} class="p-2 rounded-md bg-white text-indigo-600 shadow-sm hover:text-indigo-800 transition-all border border-slate-100 disabled:opacity-30 disabled:shadow-none">
+                                            <i data-lucide="plus" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                }
+            } 
+            else if (currentView === 'admin') {
+                floatingCart.style.display = 'none';
+
+                html += `
+                <div class="max-w-3xl mx-auto space-y-6 animate-fade-in-up pb-10">
+                    <button onclick="goToCatalog()" class="flex items-center text-slate-500 hover:text-indigo-600 font-semibold mb-6 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm transition-colors">
+                        <i data-lucide="arrow-left" class="w-4 h-4 mr-2"></i> Volver al Catálogo
+                    </button>
+                    
+                    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+                        <div class="bg-slate-900 px-8 py-6 text-white flex justify-between items-center">
+                            <div>
+                                <h2 class="text-2xl font-bold flex items-center"><i data-lucide="package-search" class="mr-3 text-indigo-400"></i> Control de Stock en Vivo</h2>
+                                <p class="text-slate-400 mt-1 text-sm">Cambia las cantidades y se guardarán automáticamente en tu Excel.</p>
+                            </div>
+                            <div class="text-emerald-400 text-xs font-bold border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 rounded-full flex items-center">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-2"></span> En Línea
+                            </div>
+                        </div>
+
+                        <div class="p-8">
+                            <table class="w-full text-left">
+                                <thead>
+                                    <tr class="text-xs uppercase text-slate-400 border-b-2 border-slate-100">
+                                        <th class="pb-3 px-2">ID</th>
+                                        <th class="pb-3 px-2">Producto</th>
+                                        <th class="pb-3 px-2 text-center">Unidades Físicas</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                `;
+
+                INVENTORY.forEach(item => {
+                    const isZero = item.stock <= 0;
+                    html += `
+                                    <tr class="hover:bg-slate-50 transition-colors">
+                                        <td class="py-4 px-2 text-slate-400 font-mono text-sm">${item.id}</td>
+                                        <td class="py-4 px-2 flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded flex items-center justify-center ${item.bg}"><i data-lucide="${item.icon}" class="w-4 h-4 ${item.color}"></i></div>
+                                            <span class="font-bold text-slate-800">${item.name}</span>
+                                        </td>
+                                        <td class="py-4 px-2 text-center">
+                                            <!-- INPUT CON MODIFICACIÓN (Pasa id y nombre) -->
+                                            <input type="number" value="${item.stock}" onchange="adminUpdateStock('${item.id}', '${item.name}', this.value)" class="w-20 text-center text-lg font-bold border border-slate-300 rounded-lg py-1 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all ${isZero ? 'text-red-600 bg-red-50' : 'text-slate-700'}">
+                                        </td>
+                                    </tr>
+                    `;
+                });
+
+                html += `
+                                </tbody>
+                            </table>
+                            <div class="mt-8 text-center text-sm text-slate-500 font-medium bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <i data-lucide="info" class="inline w-4 h-4 mr-1 text-indigo-500"></i> Modifica un número, haz clic fuera del cuadro y verás un mensaje verde de confirmación.
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            else if (currentView === 'checkout') {
+                floatingCart.style.display = 'none';
+                
+                let opcionesLideres = LIDERES.map(lider => `<option value="${lider}">${lider}</option>`).join('');
+
+                html += `
+                <div class="max-w-2xl mx-auto space-y-6 animate-fade-in-up pb-10">
+                    <button onclick="goToCatalog()" class="flex items-center text-indigo-600 hover:text-indigo-800 font-medium mb-4">
+                        <i data-lucide="arrow-left" class="w-5 h-5 mr-1"></i> Seguir agregando equipos
+                    </button>
+                    <h2 class="text-3xl font-bold text-slate-800">Completa tu Solicitud</h2>
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8">
+                        <form onsubmit="processOrder(event)">
+                            <div class="mb-8">
+                                <label class="block text-sm font-bold text-slate-700 mb-2">Líder Solicitante</label>
+                                <select id="leaderName" required autofocus class="w-full border-2 border-slate-200 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-lg transition-all bg-white cursor-pointer appearance-none">
+                                    <option value="" disabled selected>-- Selecciona tu nombre en la lista --</option>
+                                    ${opcionesLideres}
+                                </select>
+                            </div>
+                            <h3 class="font-bold text-slate-700 mb-4 border-b-2 border-slate-100 pb-2">Equipos Seleccionados</h3>
+                            <ul class="divide-y divide-slate-100 mb-8">
+                `;
+                
+                for (const [id, qty] of Object.entries(cart)) {
+                    const item = INVENTORY.find(i => i.id === id);
+                    html += `
+                        <li class="py-4 flex items-center justify-between">
+                            <div class="flex items-center space-x-4">
+                                <div class="w-12 h-12 rounded-lg flex items-center justify-center ${item.bg}">
+                                    <i data-lucide="${item.icon}" class="${item.color}"></i>
+                                </div>
+                                <p class="font-bold text-slate-800 text-lg">${item.name}</p>
+                            </div>
+                            <span class="font-bold text-indigo-700 bg-indigo-50 px-4 py-2 rounded-lg text-lg border border-indigo-100">x${qty}</span>
+                        </li>
+                    `;
+                }
+
+                html += `
+                            </ul>
+                            <button type="submit" class="w-full py-4 text-lg rounded-xl bg-green-600 text-white hover:bg-green-700 focus:ring-green-500 shadow-md flex items-center justify-center font-medium transition-all">
+                                <i data-lucide="send" class="w-6 h-6 mr-2"></i> Enviar Pedido (WhatsApp + Excel)
+                            </button>
+                        </form>
+                    </div>
+                </div>`;
+            }
+            else if (currentView === 'success') {
+                floatingCart.style.display = 'none';
+                html += `
+                <div class="max-w-md mx-auto mt-20 text-center animate-fade-in-up bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex justify-center mb-6">
+                        <div class="bg-emerald-100 p-6 rounded-full text-emerald-600">
+                            <i data-lucide="check-circle" style="width: 64px; height: 64px;"></i>
+                        </div>
+                    </div>
+                    <h2 class="text-3xl font-bold text-slate-800 mb-4">¡Listo!</h2>
+                    <p class="text-slate-600 mb-8 text-lg">
+                        El registro se guardó exitosamente y se preparó el mensaje. Recuerda seleccionar el <b>grupo de Sistemas</b> en WhatsApp para terminar.
+                    </p>
+                    <button onclick="goToCatalog()" class="w-full py-3 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium transition-all">
+                        Volver al inicio
+                    </button>
+                </div>`;
+            }
+
+            container.innerHTML = html;
+            lucide.createIcons(); 
+        }
+
+        // Cargar inventario al iniciar
+        loadInventory();
+    </script>
+</body>
+</html>
