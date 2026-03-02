@@ -55,7 +55,7 @@
     </main>
 
     <!-- FOOTER COPYRIGHT -->
-    <footer class="w-full text-center py-6 bg-slate-900 text-whitemt-auto text-sm text-slate-400">
+    <footer class="w-full text-center py-6 bg-slate-900 text-white shadow-mt-auto text-sm text-slate-400">
         &copy; 2026 David - DevOps
     </footer>
 
@@ -79,16 +79,18 @@
         const GOOGLE_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfFxX65M8NgVPHB09LqC-mIRFi5_owL5G73EszBKKQNZlVVrQ/formResponse";
         const ENTRY_NAME = "entry.519287369"; // ID de la pregunta "Nombre/Área"
         const ENTRY_ITEMS = "entry.747711175"; // ID de la pregunta "Equipos Solicitados"
+        
+        // 👇 NUEVO: Coloca aquí el ID de la pregunta "Estado" si la creas en Google Forms
+        const ENTRY_STATUS = "entry.000000000"; // Reemplázalo por tu ID real para que caiga en la Columna D
 
         // ==========================================
-        // 🔒 SEGURIDAD Y PINES PERSONALES (NUEVO)
-        // Aquí defines el PIN único de cada técnico.
+        // 🔒 SEGURIDAD Y PINES PERSONALES
         // ==========================================
         const ADMIN_USERS = {
             "2026": "David Cajias",
-            "1234": "Joel Congache" 
+            "1234": "Joel Congache"
         };
-        let currentAdminSession = ""; // Variable para guardar quién está conectado
+        let currentAdminSession = ""; 
 
         // ==========================================
         // LISTA DE LÍDERES
@@ -218,7 +220,7 @@
             }
         }
 
-        // Procesar una solicitud pendiente (Sin combos, usa la sesión actual)
+        // --- PROCESAR SOLICITUD PENDIENTE (CON CANTIDADES MODIFICABLES) ---
         async function processRequest(reqId) {
             if (!currentAdminSession) {
                 alert("Error de sesión. Vuelve a ingresar tu PIN.");
@@ -230,55 +232,84 @@
             if (!request) return;
             
             let updates = [];
+            let finalItemsText = "";
             
-            // Descontar inventario local
-            for (const itemReq of request.items) {
-                 const invItem = INVENTORY.find(i => i.id === itemReq.id);
-                 if (invItem) {
-                     // Asegurar que no quede negativo
-                     invItem.stock = Math.max(0, invItem.stock - itemReq.qty);
-                     updates.push({id: invItem.id, stock: invItem.stock});
+            // Revisamos las cantidades que el técnico dejó en las cajitas input
+            for (let index = 0; index < request.items.length; index++) {
+                 const itemReq = request.items[index];
+                 // SOLUCIÓN: Usamos reqId en lugar de req.id
+                 const inputEl = document.getElementById(`edit_qty_${reqId}_${index}`);
+                 const approvedQty = inputEl ? parseInt(inputEl.value) || 0 : 0;
+
+                 if (approvedQty > 0) {
+                     const invItem = INVENTORY.find(i => i.id === itemReq.id);
+                     if (invItem) {
+                         if (approvedQty > invItem.stock) {
+                             alert(`No puedes aprobar ${approvedQty} unidades de ${itemReq.name}. Solo hay ${invItem.stock} en stock.`);
+                             return;
+                         }
+                         // Descontar inventario
+                         invItem.stock = Math.max(0, invItem.stock - approvedQty);
+                         updates.push({id: invItem.id, stock: invItem.stock});
+                         
+                         // Crear el texto de evidencia si hubo cambios
+                         if (approvedQty !== itemReq.qty) {
+                             finalItemsText += `${approvedQty}x ${itemReq.name} (Pidió ${itemReq.qty}), `;
+                         } else {
+                             finalItemsText += `${approvedQty}x ${itemReq.name}, `;
+                         }
+                     }
                  }
             }
+
+            if (finalItemsText === "") {
+                alert("La cantidad está en 0. Si no vas a entregar nada, usa el botón rojo de Rechazar.");
+                return;
+            }
             
-            // Actualizar local storage
+            // Guardar local
             localStorage.setItem('sicp_stock_data', JSON.stringify(INVENTORY));
+            
+            // REGISTRO OFICIAL EN EXCEL (GOOGLE FORMS)
+            submitToGoogleForms(request.leaderName, finalItemsText, `PROCESADA (${currentAdminSession})`);
             
             // Actualizar Excel de forma asíncrona
             if (EXCEL_API_URL) {
-                showToast(`Registrando salida por ${currentAdminSession}... ⏳`, "info");
+                showToast(`Despachando equipos... ⏳`, "info");
                 try {
                     await Promise.all(updates.map(u => {
                         const url = `${EXCEL_API_URL}?action=update&id=${u.id}&stock=${u.stock}&t=${new Date().getTime()}`;
                         return fetch(url, { redirect: 'follow' });
                     }));
-                    showToast("✅ Despachado exitosamente. Inventario actualizado.", "success");
+                    showToast("✅ Despachado y registrado en Excel.", "success");
                 } catch(e) {
                     showToast("❌ Error al descontar del Excel.", "error");
                 }
             }
             
-            // Opcional: Aquí en el futuro puedes enviar a Excel el nombre de "currentAdminSession" 
-            // para que quede en un historial de quién despachó.
-            
             // Eliminar de pendientes
             PENDING_REQUESTS = PENDING_REQUESTS.filter(r => r.id !== reqId);
             savePendingRequests();
             
-            // Refrescar vista
             render();
         }
         
-        // Rechazar una solicitud
+        // --- RECHAZAR SOLICITUD ---
         function rejectRequest(reqId) {
-            if (confirm("¿Estás seguro de rechazar este pedido?")) {
+            if (confirm("¿Estás seguro de rechazar este pedido por completo?")) {
+                const request = PENDING_REQUESTS.find(r => r.id === reqId);
+                let originalItemsText = request.items.map(i => `${i.qty}x ${i.name}`).join(', ');
+                
+                // Anotar en Excel como Rechazada
+                submitToGoogleForms(request.leaderName, originalItemsText, `RECHAZADA (${currentAdminSession})`);
+
                 PENDING_REQUESTS = PENDING_REQUESTS.filter(r => r.id !== reqId);
                 savePendingRequests();
                 render();
+                showToast("🚫 Solicitud rechazada. Registrado en Excel.", "info");
             }
         }
 
-        // Interacción del Líder (Catálogo normal)
         function updateCart(id, change) {
             const item = INVENTORY.find(i => i.id === id);
             const currentQty = cart[id] || 0;
@@ -299,7 +330,6 @@
         function goToCatalog() { currentView = 'catalog'; loadInventory(); window.scrollTo(0, 0); }
         
         function goToAdmin() { 
-            // Si ya está logueado, lo pasa directo, si no le pide PIN
             if(currentAdminSession) {
                 currentView = 'admin';
                 loadPendingRequests();
@@ -311,18 +341,17 @@
         }
 
         function exitAdmin() {
-            currentAdminSession = ""; // Cierra sesión
+            currentAdminSession = ""; 
             goToCatalog();
             showToast("Sesión cerrada", "info");
         }
 
-        // Función que verifica si el PIN pertenece a algún usuario
         function verifyAdminPin(event) {
             event.preventDefault();
             const pin = document.getElementById('adminPinInput').value;
             
             if (ADMIN_USERS[pin]) {
-                currentAdminSession = ADMIN_USERS[pin]; // Guarda el nombre de quien ingresó
+                currentAdminSession = ADMIN_USERS[pin]; 
                 currentView = 'admin';
                 loadPendingRequests();
                 render();
@@ -334,7 +363,8 @@
             }
         }
 
-        function submitToGoogleForms(name, itemsText) {
+        // --- REGISTRADOR EN GOOGLE FORMS CON ESTADO ---
+        function submitToGoogleForms(name, itemsText, statusText) {
             if(GOOGLE_FORM_URL.includes("TU_ID_DE_FORMULARIO_AQUI")) return;
             let iframe = document.getElementById('hidden_iframe');
             if (!iframe) {
@@ -342,12 +372,26 @@
                 document.body.appendChild(iframe);
             }
             let form = document.createElement('form'); form.action = GOOGLE_FORM_URL; form.method = 'POST'; form.target = 'hidden_iframe';
-            let inputName = document.createElement('input'); inputName.type = 'hidden'; inputName.name = ENTRY_NAME; inputName.value = name; form.appendChild(inputName);
+            
+            // Truco: Si no configuraron ENTRY_STATUS, concatenamos el estado al nombre para que no se pierda la data
+            let finalName = name;
+            if (statusText) {
+                if (ENTRY_STATUS && ENTRY_STATUS !== "entry.000000000") {
+                    let inputStatus = document.createElement('input'); 
+                    inputStatus.type = 'hidden'; inputStatus.name = ENTRY_STATUS; inputStatus.value = statusText; 
+                    form.appendChild(inputStatus);
+                } else {
+                    finalName = `${name} [${statusText}]`;
+                }
+            }
+
+            let inputName = document.createElement('input'); inputName.type = 'hidden'; inputName.name = ENTRY_NAME; inputName.value = finalName; form.appendChild(inputName);
             let inputItems = document.createElement('input'); inputItems.type = 'hidden'; inputItems.name = ENTRY_ITEMS; inputItems.value = itemsText; form.appendChild(inputItems);
+            
             document.body.appendChild(form); form.submit();
         }
 
-        // LÍDER HACE EL PEDIDO (NO descuenta stock, se va a "Pendientes")
+        // --- LÍDER HACE EL PEDIDO (No se anota en Excel, solo se va a Pendientes) ---
         function processOrder(event) {
             event.preventDefault();
             const nameSelect = document.getElementById('leaderName');
@@ -360,22 +404,17 @@
             }
 
             let messageWA = `Hola Sistemas, soy *${name.trim()}*.%0A%0ASolicito los siguientes equipos para mi área:%0A%0A`;
-            let itemsForExcel = "";
             let reqItems = [];
 
             for (const [id, qty] of Object.entries(cart)) {
                 const item = INVENTORY.find(i => i.id === id);
                 messageWA += `▪️ ${qty}x ${item.name}%0A`;
-                itemsForExcel += `${qty}x ${item.name}, `; 
                 reqItems.push({ id: item.id, name: item.name, qty: qty });
             }
 
             messageWA += `%0A_Enviado desde el Portal de Solicitudes SISTEMAS_FYDI_`;
             
-            // 1. Registrar en el Forms de Excel
-            submitToGoogleForms(name.trim(), itemsForExcel);
-            
-            // 2. Guardar en la bandeja de pendientes
+            // Guardar en la bandeja de pendientes LOCAL
             loadPendingRequests();
             const newRequest = {
                 id: 'req_' + Date.now(),
@@ -386,7 +425,7 @@
             PENDING_REQUESTS.push(newRequest);
             savePendingRequests();
 
-            // 3. Abrir WhatsApp
+            // Abrir WhatsApp
             window.open(`https://api.whatsapp.com/send?text=${messageWA}`, '_blank');
             
             cart = {};
@@ -484,7 +523,7 @@
                         <div class="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col">
                             <div class="bg-indigo-600 px-6 py-5 text-white">
                                 <h2 class="text-xl font-black flex items-center"><i data-lucide="inbox" class="mr-2"></i> Solicitudes Pendientes</h2>
-                                <p class="text-indigo-100 mt-1 text-xs">Revisa y despacha los pedidos. Se registrarán a tu nombre.</p>
+                                <p class="text-indigo-100 mt-1 text-xs">Revisa y ajusta las cantidades. Al despachar, se anotará en el Excel.</p>
                             </div>
                             <div class="p-6 flex-grow bg-slate-50">
                 `;
@@ -499,27 +538,31 @@
                 } else {
                     html += `<div class="space-y-4">`;
                     PENDING_REQUESTS.forEach(req => {
-                        let itemsHtml = req.items.map(i => `<li class="text-sm"><span class="font-bold">${i.qty}x</span> ${i.name}</li>`).join('');
+                        
+                        // Generamos inputs editables para cada item de la solicitud
+                        let itemsHtml = req.items.map((i, index) => `
+                            <li class="flex items-center justify-between text-sm mb-2 last:mb-0">
+                                <span class="text-slate-700 font-medium">${i.name} <span class="text-xs text-slate-400 block sm:inline">(Solicitó ${i.qty})</span></span>
+                                <div class="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm flex-shrink-0">
+                                    <input type="number" id="edit_qty_${req.id}_${index}" min="0" max="${i.qty}" value="${i.qty}" class="w-12 text-center py-1 focus:bg-indigo-50 outline-none text-slate-800 font-bold text-sm">
+                                </div>
+                            </li>
+                        `).join('');
                         
                         html += `
                                 <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                    <div class="flex justify-between items-start mb-2">
+                                    <div class="flex justify-between items-start mb-3">
                                         <div>
                                             <h4 class="font-bold text-slate-800">${req.leaderName}</h4>
                                             <p class="text-xs text-slate-500">${req.date}</p>
                                         </div>
                                     </div>
-                                    <ul class="mb-4 text-slate-600 bg-slate-50 p-2 rounded border border-slate-100">
+                                    <ul class="mb-4 text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-100">
                                         ${itemsHtml}
                                     </ul>
-                                    <div class="border-t border-slate-100 pt-4 flex justify-between items-center">
-                                        <div class="text-xs text-slate-500 font-medium">
-                                            Autoriza: <span class="font-bold text-indigo-600">${currentAdminSession}</span>
-                                        </div>
-                                        <div class="flex gap-2">
-                                            <button onclick="rejectRequest('${req.id}')" class="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold hover:bg-red-50 hover:text-red-600 transition-colors" title="Rechazar y borrar"><i data-lucide="x" class="w-4 h-4"></i></button>
-                                            <button onclick="processRequest('${req.id}')" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center shadow-md"><i data-lucide="check-square" class="w-4 h-4 mr-2"></i> Despachar</button>
-                                        </div>
+                                    <div class="flex justify-between items-center border-t border-slate-100 pt-3 mt-2">
+                                        <button onclick="rejectRequest('${req.id}')" class="px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors" title="Rechazar pedido">Rechazar</button>
+                                        <button onclick="processRequest('${req.id}')" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors flex items-center shadow-md"><i data-lucide="check-square" class="w-4 h-4 mr-2"></i> Despachar</button>
                                     </div>
                                 </div>
                         `;
@@ -558,7 +601,6 @@
                 INVENTORY.forEach(item => {
                     const isZero = item.stock <= 0;
                     
-                    // LÓGICA DE PERMISOS: Solo David Cajias puede ver el input editable
                     const isSuperAdmin = currentAdminSession === "David Cajias";
                     
                     const stockInputHtml = isSuperAdmin 
